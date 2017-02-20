@@ -1,56 +1,84 @@
+
 var svg = d3.select("svg"),
-    width = +svg.attr("width");
+    width = +svg.attr("width"),
+    height = +svg.attr("height");
 
-var format = d3.format(",d");
+var fader = function(color) { return d3.interpolateRgb(color, "#fff")(0.2); },
+    color = d3.scaleOrdinal(d3.schemeCategory20.map(fader)),
+    format = d3.format(",d");
 
-var color = d3.scaleOrdinal(d3.schemeCategory20c);
+var treemap = d3.treemap()
+    .tile(d3.treemapResquarify)
+    .size([width, height])
+    .round(true)
+    .paddingInner(1);
 
-var pack = d3.pack()
-    .size([width, width])
-    .padding(1.5);
-
-d3.csv("flare.csv", function(d) {
-  d.value = +d.value;
-  if (d.value) return d;
-}, function(error, classes) {
+d3.json("flare.json", function(error, data) {
   if (error) throw error;
 
-  var root = d3.hierarchy({children: classes})
-      .sum(function(d) { return d.value; })
-      .each(function(d) {
-        if (id = d.data.id) {
-          var id, i = id.lastIndexOf(".");
-          d.id = id;
-          d.package = id.slice(0, i);
-          d.class = id.slice(i + 1);
-        }
-      });
+  var root = d3.hierarchy(data)
+      .eachBefore(function(d) { d.data.id = (d.parent ? d.parent.data.id + "." : "") + d.data.name; })
+      .sum(sumBySize)
+      .sort(function(a, b) { return b.height - a.height || b.value - a.value; });
 
-  var node = svg.selectAll(".node")
-    .data(pack(root).leaves())
+  treemap(root);
+
+  var cell = svg.selectAll("g")
+    .data(root.leaves())
     .enter().append("g")
-      .attr("class", "node")
-      .attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; });
+      .attr("transform", function(d) { return "translate(" + d.x0 + "," + d.y0 + ")"; });
 
-  node.append("circle")
-      .attr("id", function(d) { return d.id; })
-      .attr("r", function(d) { return d.r; })
-      .style("fill", function(d) { return color(d.package); });
+  cell.append("rect")
+      .attr("id", function(d) { return d.data.id; })
+      .attr("width", function(d) { return d.x1 - d.x0; })
+      .attr("height", function(d) { return d.y1 - d.y0; })
+      .attr("fill", function(d) { return color(d.parent.data.id); });
 
-  node.append("clipPath")
-      .attr("id", function(d) { return "clip-" + d.id; })
+  cell.append("clipPath")
+      .attr("id", function(d) { return "clip-" + d.data.id; })
     .append("use")
-      .attr("xlink:href", function(d) { return "#" + d.id; });
+      .attr("xlink:href", function(d) { return "#" + d.data.id; });
 
-  node.append("text")
-      .attr("clip-path", function(d) { return "url(#clip-" + d.id + ")"; })
+  cell.append("text")
+      .attr("clip-path", function(d) { return "url(#clip-" + d.data.id + ")"; })
     .selectAll("tspan")
-    .data(function(d) { return d.class.split(/(?=[A-Z][^A-Z])/g); })
+      .data(function(d) { return d.data.name.split(/(?=[A-Z][^A-Z])/g); })
     .enter().append("tspan")
-      .attr("x", 0)
-      .attr("y", function(d, i, nodes) { return 13 + (i - nodes.length / 2 - 0.5) * 10; })
+      .attr("x", 4)
+      .attr("y", function(d, i) { return 13 + i * 10; })
       .text(function(d) { return d; });
 
-  node.append("title")
-      .text(function(d) { return d.id + "\n" + format(d.value); });
+  cell.append("title")
+      .text(function(d) { return d.data.id + "\n" + format(d.value); });
+
+  d3.selectAll("input")
+      .data([sumBySize, sumByCount], function(d) { return d ? d.name : this.value; })
+      .on("change", changed);
+
+  var timeout = d3.timeout(function() {
+    d3.select("input[value=\"sumByCount\"]")
+        .property("checked", true)
+        .dispatch("change");
+  }, 2000);
+
+  function changed(sum) {
+    timeout.stop();
+
+    treemap(root.sum(sum));
+
+    cell.transition()
+        .duration(750)
+        .attr("transform", function(d) { return "translate(" + d.x0 + "," + d.y0 + ")"; })
+      .select("rect")
+        .attr("width", function(d) { return d.x1 - d.x0; })
+        .attr("height", function(d) { return d.y1 - d.y0; });
+  }
 });
+
+function sumByCount(d) {
+  return d.children ? 0 : 1;
+}
+
+function sumBySize(d) {
+  return d.size;
+}
