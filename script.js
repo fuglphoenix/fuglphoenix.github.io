@@ -1,5 +1,3 @@
-<script>
-
 var svg = d3.select("svg"),
     width = +svg.attr("width");
 
@@ -56,5 +54,3 @@ d3.csv("flare.csv", function(d) {
   node.append("title")
       .text(function(d) { return d.id + "\n" + format(d.value); });
 });
-
-</script>
